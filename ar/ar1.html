@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web AR App</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .ar-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #ar-scene-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 2rem;
+            width: 90%;
+            max-width: 500px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 1.5rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        input[type="file"] {
+            border: 2px dashed #d1d5db;
+            padding: 1rem;
+            border-radius: 0.75rem;
+            background-color: #fafafa;
+            color: #4b5563;
+        }
+
+        input[type="file"]::-webkit-file-upload-button {
+            visibility: hidden;
+        }
+        input[type="file"]::before {
+            content: 'Select File';
+            display: inline-block;
+            background: #4f46e5;
+            color: white;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            outline: none;
+            white-space: nowrap;
+            -webkit-user-select: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        input[type="file"]:hover::before {
+            background: #4338ca;
+        }
+
+        button {
+            background-color: #10b981;
+            color: white;
+            font-weight: 600;
+            padding: 1rem 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.5), 0 2px 4px -2px rgba(16, 185, 129, 0.5);
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        button:not(:disabled):hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px -1px rgba(16, 185, 129, 0.5), 0 4px 6px -2px rgba(16, 185, 129, 0.5);
+        }
+
+        #loading-indicator {
+            position: absolute;
+            z-index: 30;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            font-size: 1.25rem;
+        }
+
+    </style>
+    <!-- A-Frame and mindar-image-aframe libraries -->
+    <script src="https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+</head>
+<body>
+
+    <div class="ar-container">
+        <!-- The AR Scene will be injected here -->
+        <div id="ar-scene-container"></div>
+        
+        <!-- Controls for uploading files -->
+        <div id="controls" class="flex flex-col rounded-xl shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-center mb-4 text-gray-800">Web AR Uploader</h1>
+            <p class="text-center text-sm mb-4 text-gray-600">
+                Upload a target image and a 3D model to start the augmented reality experience.
+            </p>
+
+            <label for="image-upload" class="font-semibold text-gray-700">1. Upload Target Image (.jpg or .png)</label>
+            <input type="file" id="image-upload" accept=".jpg,.jpeg,.png" class="rounded-lg cursor-pointer">
+
+            <label for="model-upload" class="font-semibold text-gray-700">2. Upload 3D Model (.gltf or .glb)</label>
+            <input type="file" id="model-upload" accept=".gltf,.glb" class="rounded-lg cursor-pointer">
+
+            <button id="start-button" class="mt-4 rounded-lg font-bold" disabled>
+                Start AR
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div id="loading-indicator" class="rounded-lg shadow-xl">
+        Loading...
+    </div>
+
+    <script>
+        // Use a simple custom message box instead of window.alert()
+        function showMessageBox(message) {
+            const messageBox = document.createElement('div');
+            messageBox.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: #fff;
+                color: #333;
+                padding: 1.5rem;
+                border-radius: 1rem;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                z-index: 1000;
+                text-align: center;
+                max-width: 90%;
+            `;
+            messageBox.innerHTML = `
+                <p class="text-lg font-semibold mb-4">${message}</p>
+                <button onclick="this.parentNode.remove()" class="bg-indigo-500 text-white font-bold py-2 px-6 rounded-lg">OK</button>
+            `;
+            document.body.appendChild(messageBox);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const imageInput = document.getElementById('image-upload');
+            const modelInput = document.getElementById('model-upload');
+            const startButton = document.getElementById('start-button');
+            const arSceneContainer = document.getElementById('ar-scene-container');
+            const controls = document.getElementById('controls');
+            const loadingIndicator = document.getElementById('loading-indicator');
+
+            let imageURL = '';
+            let modelURL = '';
+
+            // Check if both files are uploaded and enable the button
+            const checkReadiness = () => {
+                if (imageURL && modelURL) {
+                    startButton.disabled = false;
+                } else {
+                    startButton.disabled = true;
+                }
+            };
+
+            // Read the uploaded file and return a Promise with a data URL
+            const readFileAsDataURL = (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = () => reject(reader.error);
+                    reader.readAsDataURL(file);
+                });
+            };
+
+            // Handle image upload
+            imageInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    loadingIndicator.style.display = 'block';
+                    try {
+                        imageURL = await readFileAsDataURL(file);
+                        checkReadiness();
+                    } catch (error) {
+                        showMessageBox("Error loading image. Please try again.");
+                        console.error("Error loading image:", error);
+                    } finally {
+                        loadingIndicator.style.display = 'none';
+                    }
+                }
+            });
+
+            // Handle model upload
+            modelInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    loadingIndicator.style.display = 'block';
+                    try {
+                        modelURL = await readFileAsDataURL(file);
+                        checkReadiness();
+                    } catch (error) {
+                        showMessageBox("Error loading model. Please try again.");
+                        console.error("Error loading model:", error);
+                    } finally {
+                        loadingIndicator.style.display = 'none';
+                    }
+                }
+            });
+
+            // Handle the start button click
+            startButton.addEventListener('click', () => {
+                if (imageURL && modelURL) {
+                    controls.style.display = 'none';
+                    createARScene(imageURL, modelURL);
+                } else {
+                    showMessageBox("Please upload both an image and a 3D model.");
+                }
+            });
+
+            // Dynamically create the A-Frame AR scene
+            function createARScene(imageTargetSrc, modelSrc) {
+                const sceneHTML = `
+                    <a-scene mindar-image="imageTargetSrc: ${imageTargetSrc};" 
+                             embedded 
+                             color-space="sRGB" 
+                             renderer="colorManagement: true, physicallyCorrectLights: true" 
+                             vr-mode-ui="enabled: false" 
+                             device-orientation-permission-ui="enabled: false">
+                        
+                        <!-- Camera -->
+                        <a-entity mindar-image-target="targetIndex: 0">
+                            <!-- Our dynamically loaded 3D model -->
+                            <a-gltf-model rotation="0 0 0" position="0 0 0.1" scale="0.1 0.1 0.1" src="${modelSrc}" animation-mixer></a-gltf-model>
+                        </a-entity>
+                        
+                        <!-- Light to make the model visible -->
+                        <a-entity light="type: ambient; color: #fff; intensity: 0.5"></a-entity>
+                        <a-entity light="type: directional; color: #fff; intensity: 0.8; position: -1 1 2"></a-entity>
+                        
+                        <!-- Cursor for interaction -->
+                        <a-camera position="0 0 0" look-controls="enabled: false" cursor="fuse: false; rayOrigin: mouse;"></a-camera>
+                    </a-scene>
+                `;
+                arSceneContainer.innerHTML = sceneHTML;
+            }
+        });
+    </script>
+</body>
+</html>
